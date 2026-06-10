@@ -1,0 +1,19 @@
+{
+    "name": "ProceduralHands.Editor",
+    "rootNamespace": "ProceduralHands",
+    "references": [
+        "ProceduralHands.Runtime",
+        "Unity.InputSystem"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
