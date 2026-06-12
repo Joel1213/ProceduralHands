@@ -372,8 +372,10 @@ namespace ProceduralHands {
 
             // Detección de colisión continua (evita atravesar objetos a alta velocidad); el modo depende de si es kinemático.
             body.collisionDetectionMode = body.isKinematic ? CollisionDetectionMode.ContinuousSpeculative : CollisionDetectionMode.ContinuousDynamic;
-            // Sin interpolación mientras se sostiene: la posición la manda el joint, la interpolación introduciría lag visual.
-            body.interpolation = RigidbodyInterpolation.None;
+            // Interpolación mientras se sostiene: la mano se dibuja interpolada entre pasos de física, así que
+            // el objeto debe dibujarse igual; si no, mano y objeto se actualizarían visualmente a frecuencias
+            // distintas y el objeto "vibraría" respecto a la mano (ghosting relativo entre ambos).
+            body.interpolation = RigidbodyInterpolation.Interpolate;
             // Subimos mucho las iteraciones del solver para que el joint sea rígido y estable mientras se sostiene.
             body.solverIterations = 100;
             body.solverVelocityIterations = 100;

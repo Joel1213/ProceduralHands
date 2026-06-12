@@ -69,7 +69,7 @@ namespace ProceduralHands {
         public float angleMassMaxAngle = 45f;
 
         [Header("Avanzado")]
-        [Label("Frames antes de soltar", "Frames que la mano intenta recuperar su distancia máxima antes de soltar un objeto atascado.")]
+        [Label("Pasos antes de soltar", "Pasos de física seguidos que la mano tolera más allá de la distancia máxima mientras sostiene un objeto retenido (atascado o atado), antes de soltarlo y volver al mando.")]
         public int maxDistanceReleaseFrames = 3;
 
         public Vector3 lastVelocity { get; protected set; }
@@ -87,7 +87,7 @@ namespace ProceduralHands {
         // Historial de las últimas posiciones locales de la mano; lo usa el animador para el sway de dedos.
         internal readonly Vector3[] updatePositionTracked = new Vector3[3];
 
-        int tryMaxDistanceCount; // contador de intentos de recuperar la distancia antes de soltar
+        int tryMaxDistanceCount; // pasos seguidos fuera de rango sosteniendo un objeto (paciencia antes de soltar)
         float targetMass;
         float targetHeldMass;
 
@@ -194,9 +194,13 @@ namespace ProceduralHands {
             var currentPos = hand.holdingObj != null && !hand.IsGrabbing() ? hand.handGrabPoint.position : hand.transform.position;
             var distance = Vector3.Distance(movePos, currentPos);
 
+            // ESTABILIDAD: la fuerza efectiva se limita a 1/dt. Por encima de eso, la velocidad escrita
+            // recorrería en un solo paso MÁS distancia que el error restante (fuerza × dt > 1): la mano se
+            // pasaría del objetivo en cada paso de física y oscilaría alrededor de él (tembleque visible).
+            float stablePositionStrength = Mathf.Min(followPositionStrength, 1f / deltaTime);
             // Velocidad deseada = (a dónde - dónde estoy) * fuerza, limitada por el clamp (del objeto si lo hay).
             var velocityClamp = hand.holdingObj != null ? hand.holdingObj.maxHeldVelocity : maxVelocity;
-            Vector3 vel = (movePos - currentPos) * followPositionStrength;
+            Vector3 vel = (movePos - currentPos) * stablePositionStrength;
             vel.x = Mathf.Clamp(vel.x, -velocityClamp, velocityClamp);
             vel.y = Mathf.Clamp(vel.y, -velocityClamp, velocityClamp);
             vel.z = Mathf.Clamp(vel.z, -velocityClamp, velocityClamp);
@@ -236,6 +240,13 @@ namespace ProceduralHands {
 
             // Velocidad angular = ángulo (en radianes) * fuerza, en la dirección del eje.
             float multiLinear = Mathf.Deg2Rad * angle * followRotationStrength;
+            // ESTABILIDAD: el giro de este paso nunca debe superar el error restante. Con la fuerza por
+            // defecto (100) a 72-90 Hz de física, fuerza × dt es MAYOR que 1: la muñeca giraría un
+            // ~110-140% de su error en cada paso, sobrepasando el objetivo una y otra vez → oscilación
+            // sostenida (tembleque), tanto mayor cuanto más rápido se mueve el mando. Con este tope
+            // (|ángulo|/dt), como mucho llega exacta al objetivo en un paso, sin sobrepasarlo nunca.
+            float maxNoOvershoot = Mathf.Abs(Mathf.Deg2Rad * angle) / deltaTime;
+            multiLinear = Mathf.Clamp(multiLinear, -maxNoOvershoot, maxNoOvershoot);
             Vector3 angular = multiLinear * axis.normalized;
             angle = Mathf.Abs(angle);
 
@@ -324,34 +335,42 @@ namespace ProceduralHands {
             CheckHandMaxDistance();
         }
 
-        /// <summary>Teletransporta la mano de vuelta al objetivo si la han empujado demasiado lejos (suelta el objeto si no puede recuperarse).</summary>
+        /// <summary>Vigila la distancia mano↔objetivo: devuelve la mano si se aleja demasiado y, si sostiene un objeto que algo retiene (atascado o atado, p. ej. a una cuerda), lo suelta tras unos pasos en vez de arrastrarlo.</summary>
         protected virtual void CheckHandMaxDistance() {
-            var currentHandPos = hand.holdingObj != null && !hand.IsGrabbing() ? hand.handGrabPoint.position : hand.transform.position;
+            // Durante la animación de agarre la mano se aleja del mando a propósito: no vigilamos.
+            if (hand.IsGrabbing())
+                return;
+
+            // Posición de referencia: el punto de agarre si sostiene algo, o la propia mano.
+            var currentHandPos = hand.holdingObj != null ? hand.handGrabPoint.position : hand.transform.position;
             var distance = Vector3.Distance(currentHandPos, targetMoveToPosition);
 
             // ¿La mano se ha alejado más de lo permitido?
             if (distance > maxFollowDistance) {
                 if (hand.holdingObj != null) {
-                    // Si sostiene algo, le damos unos frames para recuperarse antes de soltarlo.
-                    if (tryMaxDistanceCount < maxDistanceReleaseFrames) {
-                        SetHandLocation(targetMoveToPosition, hand.transform.rotation);
-                        tryMaxDistanceCount += 2; // sumamos 2 porque al final restamos 1
-                    }
-                    else {
-                        // Agotados los intentos: soltamos el objeto y devolvemos la mano.
+                    // Sosteniendo un objeto NO se teletransporta: si una restricción externa lo retiene
+                    // (una cuerda con tope físico, otro joint, geometría), recolocar mano+objeto a la
+                    // fuerza viola esa restricción, la física los devuelve de un tirón y se entra en un
+                    // bucle de saltos erráticos (teletransporte → tirón de vuelta → teletransporte...).
+                    // En su lugar contamos pasos seguidos fuera de rango, por si es un atasco momentáneo...
+                    tryMaxDistanceCount++;
+                    if (tryMaxDistanceCount > maxDistanceReleaseFrames) {
+                        // ...y si persiste, la mano "pierde el agarre" (algo tira más fuerte que ella,
+                        // físicamente razonable) y vuelve sola al mando, sin arrastrar el objeto.
                         hand.holdingObj.ForceHandRelease(hand);
                         SetHandLocation(targetMoveToPosition, hand.transform.rotation);
+                        tryMaxDistanceCount = 0;
                     }
                 }
                 else {
-                    // Sin objeto, simplemente devolvemos la mano.
+                    // Sin objeto, simplemente devolvemos la mano (seguridad anti-atasco).
                     SetHandLocation(targetMoveToPosition, hand.transform.rotation);
                 }
             }
-
-            // Decae el contador de intentos.
-            if (tryMaxDistanceCount > 0)
+            // Dentro del rango: la "paciencia" se recupera poco a poco.
+            else if (tryMaxDistanceCount > 0) {
                 tryMaxDistanceCount--;
+            }
         }
 
         /// <summary>Teletransporta la mano (y el objeto parentado que sostiene, conservando su transform relativo) a la pose dada.</summary>
@@ -359,9 +378,19 @@ namespace ProceduralHands {
             // Marcamos para anular la velocidad el próximo FixedUpdate (evita que salga disparada tras el salto).
             ignoreMoveFrame = true;
 
+            // Un teletransporte NO debe interpolarse: si la interpolación quedara activa, la mano se
+            // dibujaría "viajando" desde el sitio antiguo al nuevo durante un frame (estela visual).
+            // La apagamos un instante (esto resetea su búfer interno) y la restauramos tras el salto.
+            var prevHandInterpolation = hand.body.interpolation;
+            hand.body.interpolation = RigidbodyInterpolation.None;
+
             // Si sostenemos un objeto parentado, lo movemos con la mano manteniendo su posición relativa.
             if (hand.holdingObj != null && hand.holdingObj.parentOnGrab && !hand.IsGrabbing() && hand.holdingObj.body != null) {
                 var grab = hand.holdingObj.body;
+                // Mismo tratamiento de interpolación para el objeto: salta, no se "estira".
+                var prevGrabInterpolation = grab.interpolation;
+                grab.interpolation = RigidbodyInterpolation.None;
+
                 var handPos = hand.transform.position;
                 var handRot = hand.transform.rotation;
                 // Guardamos la posición/rotación del objeto relativas a la mano...
@@ -375,6 +404,8 @@ namespace ProceduralHands {
                 grab.transform.rotation = grab.rotation;
                 grab.linearVelocity = Vector3.zero;
                 grab.angularVelocity = Vector3.zero;
+
+                grab.interpolation = prevGrabInterpolation;
             }
 
             // Movemos la mano (transform y Rigidbody) y anulamos su velocidad.
@@ -384,6 +415,9 @@ namespace ProceduralHands {
             hand.body.rotation = targetRotation;
             hand.body.linearVelocity = Vector3.zero;
             hand.body.angularVelocity = Vector3.zero;
+
+            // Restauramos la interpolación de la mano (el salto ya está consumado).
+            hand.body.interpolation = prevHandInterpolation;
 
             // El objetivo intermedio salta también, para no tirar de la mano de vuelta al sitio anterior.
             moveTo.position = targetPosition;

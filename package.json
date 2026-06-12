@@ -1,6 +1,6 @@
 {
   "name": "com.rewoox.proceduralhands",
-  "version": "0.1.0",
+  "version": "0.1.5",
   "displayName": "Procedural Hands",
   "description": "Sistema de manos procedurales para VR: manos físicas (Rigidbody) que siguen al controller, agarre automático con flexión de dedos procedural y un sistema de poses (estática, avanzada por eje/radio y animada). Reimplementación independiente inspirada en el comportamiento de Auto Hand, usando solo Unity physics + Input System / XR Interaction Toolkit. No contiene código del package original.",
   "unity": "6000.3",

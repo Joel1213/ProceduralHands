@@ -290,11 +290,13 @@ namespace ProceduralHands.EditorTools {
                 return;
             handModel = go;
 
-            // Rigidbody sin gravedad y sin interpolación (la mano la mueve la física siguiendo al controlador).
+            // Rigidbody sin gravedad y CON interpolación (la mano la mueve la física siguiendo al controlador;
+            // la interpolación suaviza la posición dibujada entre pasos de física — sin ella la mano se vería
+            // a saltos/ghosting cuando el visor renderiza a más Hz que la física).
             var rb = EnsureComponent<Rigidbody>(go);
             if (rb != null) {
                 rb.useGravity = false;
-                rb.interpolation = RigidbodyInterpolation.None;
+                rb.interpolation = RigidbodyInterpolation.Interpolate;
             }
 
             // El componente Hand arrastra (vía RequireComponent) follower/animator/highlighter.

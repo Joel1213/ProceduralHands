@@ -147,11 +147,15 @@ namespace ProceduralHands {
         protected Collider palmCollider;   // caja (desactivada) de la palma usada por el AutoPose para ComputePenetration
 
         protected virtual void Awake() {
-            // Configuramos el Rigidbody de la mano: sin gravedad, sin interpolación y con muchas iteraciones
+            // Configuramos el Rigidbody de la mano: sin gravedad, CON interpolación y con muchas iteraciones
             // de solver para que las articulaciones físicas (joints) sean estables.
+            // La interpolación es clave contra el "ghosting": la física solo mueve la mano en cada paso fijo
+            // (p. ej. 72 Hz); si el visor renderiza a más Hz, sin interpolación la mano avanza a saltos
+            // discretos y al moverla rápido se percibe doble/estela. Con Interpolate, Unity suaviza la
+            // posición DIBUJADA entre pasos de física y el movimiento se ve continuo (la física no cambia).
             var rb = body;
             rb.useGravity = false;
-            rb.interpolation = RigidbodyInterpolation.None;
+            rb.interpolation = RigidbodyInterpolation.Interpolate;
             rb.solverIterations = 100;
             rb.solverVelocityIterations = 100;
 
