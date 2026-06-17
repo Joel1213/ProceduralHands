@@ -1,4 +1,6 @@
 using UnityEngine;
+using UnityEngine.XR.Interaction.Toolkit.Locomotion;               // LocomotionProvider (parámetro del evento).
+using UnityEngine.XR.Interaction.Toolkit.Locomotion.Teleportation; // TeleportationProvider (locomoción de teleport).
 
 namespace ProceduralHands {
     /// <summary>
@@ -71,6 +73,8 @@ namespace ProceduralHands {
         [Header("Avanzado")]
         [Label("Pasos antes de soltar", "Pasos de física seguidos que la mano tolera más allá de la distancia máxima mientras sostiene un objeto retenido (atascado o atado), antes de soltarlo y volver al mando.")]
         public int maxDistanceReleaseFrames = 3;
+        [Label("Proveedor de teletransporte", "Opcional. Al teletransportarse (locomoción XRI), la mano salta al instante a la pose del mando con lo que sostenga, en vez de quedarse atrás o soltar el objeto. Si se deja vacío, se busca uno en la escena al iniciar.")]
+        public TeleportationProvider teleportProvider;
 
         public Vector3 lastVelocity { get; protected set; }
         public Vector3 lastAngularVelocity { get; protected set; }
@@ -111,10 +115,22 @@ namespace ProceduralHands {
             hand.body.useGravity = false;
         }
 
+        protected virtual void Start() {
+            // Si no se asignó a mano, intentamos localizar el proveedor de teletransporte de la escena.
+            if (teleportProvider == null)
+                teleportProvider = FindFirstObjectByType<TeleportationProvider>();
+            // Nos suscribimos al FIN de la locomoción (el rig ya saltó) para reposicionar la mano.
+            if (teleportProvider != null)
+                teleportProvider.locomotionEnded += OnTeleportEnded;
+        }
+
         protected virtual void OnDestroy() {
             // Limpiamos el transform auxiliar creado en runtime.
             if (_moveTo != null)
                 Destroy(_moveTo.gameObject);
+            // Nos damos de baja del evento para no dejar suscripciones colgando.
+            if (teleportProvider != null)
+                teleportProvider.locomotionEnded -= OnTeleportEnded;
         }
 
         protected virtual void Update() {
@@ -432,6 +448,22 @@ namespace ProceduralHands {
         /// <summary>Devuelve la mano al objetivo intermedio actual.</summary>
         public void ResetHandLocation() {
             SetHandLocation(moveTo.position, moveTo.rotation);
+        }
+
+        /// <summary>
+        /// Reacción al fin de un teletransporte (locomoción XRI): el rig (y el mando) ya están en su nueva
+        /// posición, así que llevamos la mano —y el objeto que sostenga— a la pose del mando AHORA mismo.
+        /// Así la mano no se queda atrás tras el salto ni <see cref="CheckHandMaxDistance"/> lo confunde con
+        /// un objeto retenido y lo suelta. Se ejecuta antes del próximo paso de física, que ya ve la mano en su sitio.
+        /// </summary>
+        protected virtual void OnTeleportEnded(LocomotionProvider provider) {
+            // Sin objetivo o con el movimiento desactivado, no hay nada que reposicionar.
+            if (hand.follow == null || !hand.enableMovement)
+                return;
+            // Recalculamos el objetivo con el follow ya saltado y teletransportamos la mano (SetHandLocation
+            // también arrastra el objeto parentado que sostiene, conservando su pose relativa).
+            SetMoveTo();
+            SetHandLocation(targetMoveToPosition, targetMoveToRotation);
         }
     }
 }
