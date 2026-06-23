@@ -13,8 +13,10 @@ namespace ProceduralHands.EditorTools {
     public class GrabbableEditor : Editor {
 
         // Campos de física/sujeción/lanzamiento que NO tienen efecto en modo Climb (se ocultan para no confundir).
+        // 'instantGrab' SÍ aplica en Climb (hace que la mano aparezca ya posada en el asidero, sin animar la
+        // aproximacion), asi que NO se oculta: es una opcion util tambien al escalar.
         static readonly HashSet<string> climbHiddenFields = new HashSet<string> {
-            "instantGrab", "parentOnGrab",
+            "parentOnGrab",
             "heldNoFriction", "minHeldDrag", "minHeldAngleDrag", "minHeldMass",
             "maxHeldVelocity", "heldPositionOffset", "heldRotationOffset",
             "throwPower", "jointBreakForce", "ignoreReleaseTime"
@@ -49,7 +51,8 @@ namespace ProceduralHands.EditorTools {
                 EditorGUILayout.HelpBox(
                     "Modo Climb (escalada): el asidero debe tener su Rigidbody en 'Is Kinematic'. No se crea joint ni se mueve el objeto; " +
                     "la mano se posa y se ancla al asidero, y la escalada la gestiona el sistema XRI (ClimbInteractable + ClimbProvider). " +
-                    "Por eso se ocultan los ajustes de sujeción y lanzamiento. Opcional: añade una pose (normal o avanzada) para dar forma al agarre.",
+                    "Por eso se ocultan los ajustes de sujeción y lanzamiento. Opcional: añade una pose (normal o avanzada) para dar forma al agarre, " +
+                    "y activa 'Agarre instantáneo' para que la mano aparezca ya posada en el asidero, sin animar la aproximación.",
                     MessageType.Info);
 
             var grab = target as Grabbable;
