@@ -72,7 +72,9 @@ namespace ProceduralHands {
 
         bool climbAnchored;          // true si el agarre actual es de tipo Climb y ancló la mano (kinemática)
         bool climbPrevKinematic;     // estado isKinematic de la mano antes de anclar, para restaurarlo al soltar
-        Transform climbPrevParent;   // padre original de la mano antes de anclar (se desparenta al mundo durante el climb)
+        Transform rigParent;         // padre original de la mano (el rig/XR Origin); se reparenta aquí tras el climb
+        Hand otherHand;              // la otra mano del rig (auto-localizada en Start), para coordinar el desacople en climb
+        bool rigDecoupled;           // true si la mano está desparentada del rig por un climb (el suyo o el de la otra mano)
 
         Coroutine _grabRoutine;
         // Propiedad que, al asignar una nueva coroutine de agarre mientras hay otra en curso, cancela la anterior.
@@ -135,6 +137,15 @@ namespace ProceduralHands {
             if (noHandFriction)
                 foreach (var col in handColliders)
                     col.material = NoFrictionMaterial;
+
+            // Guardamos el padre original (el rig/XR Origin) para poder devolver la mano a él tras un climb.
+            rigParent = transform.parent;
+            // Localizamos la otra mano del rig (la del lado contrario) para coordinar el desacople en climb.
+            foreach (var h in FindObjectsByType<Hand>(FindObjectsSortMode.None))
+                if (h != this && h.left != left) {
+                    otherHand = h;
+                    break;
+                }
         }
 
         //=================================================================
@@ -274,12 +285,12 @@ namespace ProceduralHands {
 
             // Si la mano estaba anclada por escalada (modo Climb), la reintegramos al rig y la devolvemos a dinámica.
             if (climbAnchored) {
-                // Volvemos a colgarla de su padre original (el rig) conservando su posición de mundo actual...
-                transform.SetParent(climbPrevParent, true);
-                climbPrevParent = null;
-                // ...y a su estado dinámico, para que el follower vuelva a llevarla hacia el mando.
+                // La devolvemos a su estado dinámico, para que el follower vuelva a llevarla hacia el mando...
                 body.isKinematic = climbPrevKinematic;
                 climbAnchored = false;
+                // ...y reacoplamos al rig ambas manos si ya no queda ningún climb activo (si la otra sigue
+                // escalando, las dos permanecen desacopladas hasta que ella también suelte). Ver RefreshRigCoupling.
+                RefreshRigCoupling();
             }
 
             // Destruimos el joint físico si quedaba.
@@ -287,6 +298,28 @@ namespace ProceduralHands {
                 Destroy(heldJoint);
                 heldJoint = null;
             }
+        }
+
+        /// <summary>
+        /// Acopla o desacopla del rig las dos manos según si hay una escalada (climb) activa. Mientras una
+        /// mano está anclada escalando, XRI desplaza el XR Origin; una mano dinámica colgando de ese rig en
+        /// movimiento seguiría al mando a tirones (el transform del padre pelea con su simulación física).
+        /// Por eso, si CUALQUIERA de las dos manos está anclada por climb, desparentamos AMBAS al mundo;
+        /// cuando ninguna lo está, las devolvemos al rig. Se llama al anclar y al soltar un climb.
+        /// </summary>
+        void RefreshRigCoupling() {
+            bool anyClimb = climbAnchored || (otherHand != null && otherHand.climbAnchored);
+            SetRigDecoupled(anyClimb);
+            if (otherHand != null)
+                otherHand.SetRigDecoupled(anyClimb);
+        }
+
+        /// <summary>Desparenta la mano del rig (al mundo) o la devuelve a él, conservando su pose de mundo.</summary>
+        void SetRigDecoupled(bool decoupled) {
+            if (decoupled == rigDecoupled)
+                return;
+            rigDecoupled = decoupled;
+            transform.SetParent(decoupled ? null : rigParent, true);
         }
 
         /// <summary>Crea el ConfigurableJoint que conecta el cuerpo de la mano con el del grabbable.</summary>
@@ -707,12 +740,13 @@ namespace ProceduralHands {
             // así la mano se queda fija en el asidero mientras la escalada de XRI desplaza al jugador.
             if (isClimb) {
                 climbPrevKinematic = body.isKinematic; // guardamos el estado para restaurarlo al soltar
-                climbPrevParent = transform.parent;    // y el padre, porque ahora la desparentamos
                 climbAnchored = true;
                 body.isKinematic = true;
-                // CLAVE: la mano normalmente cuelga del XR Origin. Si la escalada mueve el rig, la mano (hija) subiría
-                // con él. La desparentamos al mundo (conservando su pose) para que se quede REALMENTE fija en el asidero.
-                transform.SetParent(null, true);
+                // CLAVE: las manos cuelgan del XR Origin y la escalada de XRI mueve ese rig. Una mano colgando de un
+                // rig en movimiento sigue al mando a tirones (el transform del padre pelea con su simulación física).
+                // Por eso, mientras dure el climb, desparentamos al mundo AMBAS manos: esta (que además queda fija y
+                // kinemática en el asidero) y la otra (que sigue al mando con física, pero ya sin colgar del rig).
+                RefreshRigCoupling();
             }
             // En agarre instantáneo parentado (no Climb), teletransportamos la mano a su sitio de seguimiento.
             else if (instantGrab && holdingObj.parentOnGrab) {
