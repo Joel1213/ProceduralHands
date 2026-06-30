@@ -282,6 +282,12 @@ namespace ProceduralHands {
                 poseData[(int)FingerPoseEnum.Closed].SetFingerPose(this);
         }
 
+        /// <summary>Pone el dedo en la pose guardada indicada (si existe). Sirve para previsualizar cualquiera de las cuatro poses, incluidas las de pinza.</summary>
+        public virtual void SetPose(FingerPoseEnum poseType) {
+            if (IsPoseSaved(poseType))
+                poseData[(int)poseType].SetFingerPose(this);
+        }
+
         //=================================================================
         //===================== GUARDADO / CONSULTA =======================
         //=================================================================

@@ -330,9 +330,16 @@ namespace ProceduralHands {
             // Creamos el joint en la mano, conectado al cuerpo del objeto, anclado en el punto de agarre.
             var joint = gameObject.AddComponent<ConfigurableJoint>();
             joint.connectedBody = grab.body;
-            joint.anchor = Vector3.zero;
+            // Punto de anclaje del joint = donde la mano REALMENTE sujeta. En pinza es la punta de los dedos
+            // (pinchPoint), NO el centro de la mano: si se ancla en el centro, el objeto pivota descolocado
+            // (se siente suelto) y, agarrado por un extremo, hace palanca y desestabiliza la mano. En agarre
+            // normal el ancla queda en el centro de la mano (handGrabPoint) → InverseTransformPoint de sí
+            // mismo = 0, igual que antes.
+            bool isPinch = grab.grabPoseType == HandGrabPoseType.Pinch && pinchPointTransform != null;
+            Vector3 anchorWorld = isPinch ? pinchPointTransform.position : handGrabPoint.position;
+            joint.anchor = transform.InverseTransformPoint(anchorWorld);
             joint.autoConfigureConnectedAnchor = false;
-            joint.connectedAnchor = grab.body.transform.InverseTransformPoint(handGrabPoint.position);
+            joint.connectedAnchor = grab.body.transform.InverseTransformPoint(anchorWorld);
             // Bloqueamos los 6 grados de libertad: el objeto queda rígidamente fijado a la mano.
             joint.xMotion = joint.yMotion = joint.zMotion = ConfigurableJointMotion.Locked;
             joint.angularXMotion = joint.angularYMotion = joint.angularZMotion = ConfigurableJointMotion.Locked;
@@ -464,6 +471,10 @@ namespace ProceduralHands {
         public void CloseHand() { foreach (var f in fingers) if (f != null) f.SetFingerBend(1); }
         [ContextMenu("Pose - Relajar mano")]
         public void RelaxHand() { foreach (var f in fingers) if (f != null) f.SetFingerBend(gripOffset); }
+        [ContextMenu("Pose - Pinza abierta")]
+        public void PinchOpenHand() { foreach (var f in fingers) if (f != null) f.SetPose(FingerPoseEnum.PinchOpen); }
+        [ContextMenu("Pose - Pinza cerrada")]
+        public void PinchCloseHand() { foreach (var f in fingers) if (f != null) f.SetPose(FingerPoseEnum.PinchClosed); }
 
         /// <summary>Reproduce un pulso háptico en el mando de esta mano, si lo soporta.</summary>
         public void PlayHapticVibration(float duration = 0.05f, float amplitude = 0.5f) {
